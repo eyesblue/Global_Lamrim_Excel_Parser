@@ -47,7 +47,7 @@ public class Main extends JFrame{
 	 * 
 	 */
 	private static final long serialVersionUID = 1L;
-	static String version="1.4";
+	static String version="1.6";
 	static ArrayList<String[]> allList=new ArrayList<String[]>();
 	static ArrayList<GlRecord> recordList=new ArrayList<GlRecord>();
 	static Hashtable<String,GlRecord> glSchedule=new Hashtable<String,GlRecord>();
@@ -62,7 +62,9 @@ public class Main extends JFrame{
 			+ "1.2 當發生邏輯錯誤時，加入強制輸出選項，令維護者可輸入後手動修改。\n"
 			+ "1.3 修正在OSX中選擇輸出的路徑字串中會重複最後一個目錄名稱問題，JFileChooser.showSaveDialog ==> JFileChooser.showOpenDialog。\n"
 			+ "     修正在OSX中讀取CSV來源時，\"…\"字元會變成\"�\"字元的問題。\n"
-			+ "1.4 全廣進度下載位置改為lamrimreader.gebis.global。";
+			+ "1.4 全廣進度下載位置改為lamrimreader.gebis.global。\n"
+			+ "1.5 (1)修正月份與時間欄位可允許單一數字。(2)修正在OSX中讀取CSV來源時，\"…\"字元會變成\"�\"字元的問題(1.3版未正確修正)。\n"
+			+ "1.6 修正跨年份同時月份也超過2月份時造成後面的進度被刪除問題，現以改為進度跨年時，六個月內的進度都允許抄錄進記錄內。\n";
 	/**
 	 * @param args
 	 */
@@ -184,7 +186,7 @@ public class Main extends JFrame{
 		for(GlRecord glr:recordList){
 			
 			int lastPos=0, thisPos=0;
-			System.out.println("Start: "+glr.speechPositionStart+", End: "+glr.speechPositionEnd);
+			System.out.println("Date: start: "+glr.dateStart+" end: "+glr.dateEnd+", Start: "+glr.speechPositionStart+", End: "+glr.speechPositionEnd);
 			
 			lastPos=positionStrToWeightInt(glr.speechPositionStart);
 			if(lastPos==-1)return "格式錯誤："+glr;
@@ -293,29 +295,16 @@ public class Main extends JFrame{
 	}
 
 	
-	public static int[] getTheoryStrToInt(String str){
-		String[] split=str.split("-");
-		int page=-1, line=-1;
-		
-		split[0]=split[0].replace("P", "").replace("p", "");
-		page=Integer.parseInt(split[0])-1;
-		
-		split[1]=split[1].toUpperCase();
-		if(split[1].startsWith("LL")){
-			line=Integer.parseInt(split[1].replace("LL", ""));
-			int contentLineCount=TheoryData.content[page].split("\n").length;
-			System.out.println("Content lines of page "+page+" is "+contentLineCount);
-			line=contentLineCount-line;
-		}else{
-			line=Integer.parseInt(split[1].replace("L", ""))-1;
-		}
-		
-		int[] res={page,line};
-		return res;
-	}
+	
 	
 	private static boolean saveToGLamrimAppFile(File file){
 		System.out.println("Save files to: "+file.getAbsolutePath());
+		System.out.println("\n====================================");
+		System.out.println("There are "+recordList.size()+" records in Global Lamrim record.");
+		System.out.println("First record: "+ recordList.get(0).dateStart);
+		System.out.println("Last record: "+ recordList.get(recordList.size()-1).dateEnd);
+		System.out.println("====================================\n");
+		
 		Downloader downloader = new Downloader();
 		try {
 			if(!downloader.downloadSchedule()){
@@ -334,13 +323,22 @@ public class Main extends JFrame{
 		for(GlRecord glr:recordList)
 			downloader.addGlRecord(glr);
 		
+		System.out.println("\n====================================");
+		System.out.println("There are "+downloader.getGlSchedule().size()+" records in Global Lamrim record after combind new and old record.");
+		System.out.println("First record: "+ recordList.get(0).dateStart);
+		System.out.println("Last record: "+ recordList.get(recordList.size()-1).dateEnd);
+		System.out.println("====================================\n");
+		
 		glSchedule=downloader.getGlSchedule();
 		recordList = new ArrayList<GlRecord>(glSchedule.values());
 
+		System.out.println("\n====================================");
 		System.out.println("There are "+recordList.size()+" in Global Lamrim record.");
 		sortRecordList();
-				
 		System.out.println("There are "+recordList.size()+" in Global Lamrim record after sort.");
+		System.out.println("====================================\n");
+		
+		
 		// Delete the record that too long term.
 		String lastTime[]=recordList.get(0).dateStart.split("/");
 		Calendar lastCal=Calendar.getInstance();
@@ -365,14 +363,22 @@ public class Main extends JFrame{
 		
 		for(GlRecord glr: removeList)
 			recordList.remove(glr);
+		System.out.println("\n====================================");
+		System.out.println("There are "+recordList.size()+" records in Global Lamrim record after remove record before "+ lastCal.get(Calendar.YEAR)+"/"+ lastCal.get(Calendar.MONTH)+"/"+ lastCal.get(Calendar.DATE));
+		System.out.println("First record: "+ recordList.get(0).dateStart);
+		System.out.println("Last record: "+ recordList.get(recordList.size()-1).dateEnd);
+		System.out.println("====================================\n");
+		
 		CsvWriter csvw=new CsvWriter(file.getAbsolutePath()+File.separator+globalLamrimScheFileName,',',Charset.forName("UTF-8"));
 
 		//String[] dateRange={recordList.get(recordList.size()-1).dateStart,recordList.get(0).dateStart};
 		String[] dateRange={recordList.get(recordList.size()-1).dateStart,recordList.get(0).dateEnd};
 		try {
 			csvw.writeRecord(dateRange);
-			for(GlRecord glr:recordList)
+			for(GlRecord glr:recordList) {
+				System.out.println("Write to file: Start: "+glr.speechPositionStart+", End: "+glr.speechPositionEnd);
 				csvw.writeRecord(glr.toStringArray());
+			}
 			csvw.flush();
 		} catch (IOException e) {
 			e.printStackTrace();
@@ -404,6 +410,29 @@ public class Main extends JFrame{
 		tmpFile.delete();
 		return true;
 	}
+	
+	
+	public static int[] getTheoryStrToInt(String str){
+		String[] split=str.split("-");
+		int page=-1, line=-1;
+		
+		split[0]=split[0].replace("P", "").replace("p", "");
+		page=Integer.parseInt(split[0])-1;
+		
+		split[1]=split[1].toUpperCase();
+		if(split[1].startsWith("LL")){
+			line=Integer.parseInt(split[1].replace("LL", ""));
+			int contentLineCount=TheoryData.content[page].split("\n").length;
+			System.out.println("Content lines of page "+page+" is "+contentLineCount);
+			line=contentLineCount-line;
+		}else{
+			line=Integer.parseInt(split[1].replace("L", ""))-1;
+		}
+		
+		int[] res={page,line};
+		return res;
+	}
+	
 	
 	private static boolean openFile(File file, Charset charset){
 		
@@ -473,8 +502,8 @@ public class Main extends JFrame{
 		adjustTime();
 		
 		for(GlRecord gr:recordList){
-			gr.desc.replace("�", "…");//已知在OSX中"…"字元會變成"�"字元，此處修正回來。
-			System.out.println(gr);
+			gr.desc=gr.desc.replace("�", "…");//已知在OSX中"…"字元會變成"�"字元，此處修正回來。
+//			System.out.println(gr);
 		}
 		
 		return true;
@@ -579,11 +608,11 @@ public class Main extends JFrame{
 			boolean nextYear=false;
 			int startMonth=Integer.parseInt(dates[0].split("/")[0]);
 			int endMonth=Integer.parseInt(dates[1].split("/")[0]);
-			if(crossYear && (startMonth==1 || startMonth==2 || endMonth==1 || endMonth==2))
+			if(crossYear && (startMonth<6 || endMonth<6))
 				nextYear=true;
 			
-			gr.dateStart=((nextYear && (startMonth==1 || startMonth==2))?year+1:year)+"/"+dates[0];
-			gr.dateEnd=((nextYear && (endMonth==1 || startMonth==2))?year+1:year)+"/"+dates[1];
+			gr.dateStart=((nextYear && (startMonth<6))?year+1:year)+"/"+dates[0];
+			gr.dateEnd=((nextYear && (endMonth<6))?year+1:year)+"/"+dates[1];
 			
 			String[] times=sa[2].split("~");
 
@@ -669,9 +698,9 @@ public class Main extends JFrame{
 	
 	private static int checkSpeechFormat(String sa[]){
 		if(!(sa[0].matches("\\d+A") || sa[0].matches("\\d+B") || sa[0].matches("\\d+a") || sa[0].matches("\\d+b")))return 0;
-		if(!sa[1].matches("\\d{2}/\\d{2}~\\d{2}/\\d{2}"))return 1;
-		if(!sa[2].matches("\\d{2}:\\d{2}~\\d{2}:\\d{2}"))return 2;
-		if(!sa[3].matches("\\d{2}'\\d{2}\""))return 3;
+		if(!sa[1].matches("\\d{1,2}/\\d{1,2}~\\d{1,2}/\\d{1,2}"))return 1;
+		if(!sa[2].matches("\\d{1,2}:\\d{1,2}~\\d{1,2}:\\d{1,2}"))return 2;
+		if(!sa[3].matches("\\d{1,2}'\\d{1,2}\""))return 3;
 		if(!sa[4].matches("P\\d+-L+\\d+"))return 4;
 		if(!sa[5].matches("P\\d+-L+\\d+"))return 5;
 		if(!sa[6].matches("P\\d+-L+\\d+"))return 6;
